@@ -52,27 +52,25 @@ jobs:
         working-directory: packages/hermes-friendli-provider
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.12.13"
       # The plugin's tests import the hermes-agent `providers` package, so a
-      # hermes-agent checkout must be on sys.path. The plugin loader also
-      # discovers bundled plugins by relative layout, hence the fixed dir name.
-      # Clone with an absolute destination so the path is unambiguous: the
-      # job's working-directory is packages/hermes-friendli-provider, so a
-      # relative ../hermes-agent would land INSIDE packages/.
-      - name: Clone hermes-agent
+      # hermes-agent checkout must be on sys.path. Use its locked Python 3.14
+      # environment rather than a hand-picked subset of dependencies: Hermes
+      # only supports 3.14 at runtime, and its transport now imports ruamel.
+      - name: Clone and install hermes-agent
         run: |
           git clone --depth 1 https://github.com/NousResearch/hermes-agent "${{ runner.temp }}/hermes-agent-checkout"
-          # httpx + openai: the transport-kwargs tests drive the real SDK
-          # client stack against an httpx.MockTransport. Pin to the same
-          # major versions hermes-agent uses so the test combo matches a
-          # real installation; hermes-agent's exact pin is in its own
-          # pyproject.toml.
-          pip install pytest 'httpx>=0.27,<1' 'openai>=1.50,<2'
+          cd "${{ runner.temp }}/hermes-agent-checkout"
+          uv python install 3.14
+          uv sync --locked --python 3.14 --group dev
       - name: Run plugin tests
         # The plugin's tests import the `providers` and `agent` packages from
-        # a hermes-agent checkout; put that checkout on sys.path (locally the
-        # venv's editable install supplies it, CI has no such install).
+        # the checkout; run them with the checkout's locked virtualenv.
         run: |
-          python -m pytest test_friendli_profile.py test_transport_kwargs.py -v
+          "${{ runner.temp }}/hermes-agent-checkout/.venv/bin/python" -m pytest test_friendli_profile.py test_transport_kwargs.py -v
         env:
           HERMES_HOME: ${{ runner.temp }}/.hermes-home
           PYTHONPATH: ${{ runner.temp }}/hermes-agent-checkout

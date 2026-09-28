@@ -880,6 +880,11 @@ describe("hermes adapter surfaces", () => {
 
     const log = console.log;
     console.log = () => {};
+    setHermesPluginRunnerForTests(async () => ({
+      ok: true,
+      stdout: "",
+      stderr: "",
+    }));
     try {
       process.env[FRIENDLI_API_KEY_ENV] = "friendli-key-1234";
       const ctx = {
@@ -890,6 +895,7 @@ describe("hermes adapter surfaces", () => {
       } as const;
       await expect(hermesAdapter.on(ctx)).rejects.toThrow();
     } finally {
+      setHermesPluginRunnerForTests(null);
       delete process.env[FRIENDLI_API_KEY_ENV];
       console.log = log;
     }
