@@ -1,8 +1,8 @@
 {
-  "@anthropic-ai/claude-code": "2.1.284",
-  "@openai/codex": "0.158.0",
+  "@anthropic-ai/claude-code": "2.1.285",
+  "@openai/codex": "0.159.2",
   "@deepseek-ai/dsh-llm": "0.0.1-rc.1",
   "hermes-agent": "0.21.5",
   "opencode-ai": "1.18.33",
-  "@earendil-works/pi-coding-agent": "0.87.1"
+  "@earendil-works/pi-coding-agent": "0.99.1"
 }
