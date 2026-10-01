@@ -47,7 +47,7 @@ key="$FRIENDLIAI_API_KEY"
 unset FRIENDLIAI_API_KEY
 
 # Cheapest model with a reasoning toggle (-> "off") or effort levels (-> lowest).
-read -r model level < <(curl -fsS -H "Authorization: Bearer $key" https://api.friendli.ai/serverless/v1/models | node -e '
+read -r model level < <(curl -fsS https://api.friendli.ai/serverless/v1/models | node -e '
 const models = JSON.parse(require("fs").readFileSync(0, "utf8")).data.flatMap((m) => {
   const toggle = m.reasoning_options?.some((o) => o.type === "toggle");
   const effort = m.reasoning_options?.find((o) => o.type === "effort")?.values?.[0];

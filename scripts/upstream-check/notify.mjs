@@ -69,7 +69,7 @@ function buildPayload() {
       `  ${unitLine(r.unit)} unit | ${e2eLine(r.e2e)}`,
   );
   // Failed legs upload e2e.log as artifact e2e-log-<harness>; show each
-  // harness's tail (key-shaped strings redacted) after the summary.
+  // harness's tail (already key-redacted by the e2e step) after the summary.
   const logDir = process.env.E2E_LOG_DIR;
   const failures =
     logDir && existsSync(logDir)
@@ -78,9 +78,7 @@ function buildPayload() {
             `*${entry.replace(/^e2e-log-/, "")}* e2e log\n\`\`\`${readFileSync(
               join(logDir, entry, "e2e.log"),
               "utf8",
-            )
-              .replace(/flp_\w+/g, "flp_***")
-              .slice(-3000)}\`\`\``,
+            ).slice(-3000)}\`\`\``,
         )
       : [];
   return {
