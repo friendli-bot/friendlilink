@@ -3,8 +3,10 @@
 # Usage: e2e.sh <name> <to>      (needs FRIENDLIAI_API_KEY in the env)
 #
 # Clean terminal -> install harness -> install frlink from main -> login -> on
-# -> ONE tiny inference, reasoning off via the harness's own command -> check
-# the relay capture (200, no reasoning field) -> off -> check the reset.
+# -> ONE tiny inference on the cheapest model that can turn reasoning off (or,
+# failing that, has effort levels: the lowest one), set via the harness's own
+# command -> check the relay capture (200; no reasoning field when it was
+# turned off) -> off -> check the reset.
 # Any failing command fails the run (set -e).
 
 set -euo pipefail
@@ -21,7 +23,19 @@ if [[ -z "${E2E_CLEAN:-}" ]]; then
     FRIENDLIAI_API_KEY="$FRIENDLIAI_API_KEY" bash "$0" "$@"
 fi
 relay="$(cd "$(dirname "$0")/.." && pwd)/friendli-relay.mjs"
-trap 'kill "${relay_pid:-}" 2>/dev/null || true; rm -rf "$HOME"' EXIT
+# On failure, say what Friendli answered (a 429 shows up here, in the Slack log).
+cleanup() {
+  if [[ $? != 0 && -f capture.jsonl ]]; then
+    node -e '
+for (const l of require("fs").readFileSync("capture.jsonl", "utf8").trim().split("\n").map(JSON.parse))
+  if (l.request.method === "POST" && l.response.status >= 400)
+    console.error("proxy: Friendli answered", l.response.status, l.request.path, JSON.stringify(l.response.body).slice(0, 300));
+' || true
+  fi
+  kill "${relay_pid:-}" 2>/dev/null || true
+  rm -rf "$HOME"
+}
+trap cleanup EXIT
 cd "$HOME"
 
 # The key stays out of the environment until the user "types" it, so the
@@ -29,7 +43,18 @@ cd "$HOME"
 key="$FRIENDLIAI_API_KEY"
 unset FRIENDLIAI_API_KEY
 
-model="zai-org/GLM-5.2"
+# Cheapest model with a reasoning toggle (-> "off") or effort levels (-> lowest).
+read -r model level < <(curl -fsS https://api.friendli.ai/serverless/v1/models | node -e '
+const models = JSON.parse(require("fs").readFileSync(0, "utf8")).data.flatMap((m) => {
+  const toggle = m.reasoning_options?.some((o) => o.type === "toggle");
+  const effort = m.reasoning_options?.find((o) => o.type === "effort")?.values?.[0];
+  const level = toggle ? "off" : effort;
+  return level ? [{ id: m.id, level, price: Number(m.pricing.input) + Number(m.pricing.output) }] : [];
+});
+const { id, level } = models.sort((a, b) => a.price - b.price)[0];
+console.log(id, level);
+')
+echo "e2e: $model, reasoning $level"
 prompt="Reply with only the word: pong"
 
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
@@ -58,31 +83,32 @@ node "$relay" --port 8787 --log capture.jsonl --bodies 1000000 --quiet 2>/dev/nu
 relay_pid=$!
 until curl -s -o /dev/null "$proxy"; do kill -0 "$relay_pid"; sleep 0.2; done
 
-profile=()
+profile=() effort=()
 [[ "$name" == dsh ]] && profile=(--profile headless)
 
 case "$name" in
   claude)
     frlink claude on --model "$model" --base-url "$proxy"
-    out="$(MAX_THINKING_TOKENS=0 claude -p "$prompt")" ;;
+    [[ "$level" == off ]] && export MAX_THINKING_TOKENS=0 || effort=(--effort "$level")
+    out="$(claude "${effort[@]}" -p "$prompt")" ;;
   codex)
     frlink codex on --model "$model" --base-url "$proxy"
-    out="$(codex exec --skip-git-repo-check -c model_reasoning_effort=none "$prompt")" ;;
+    out="$(codex exec --skip-git-repo-check -c model_reasoning_effort="${level/off/none}" "$prompt")" ;;
   opencode)
     frlink opencode on --model "$model"
     export OPENCODE_CONFIG_CONTENT='{"provider":{"friendli":{"options":{"baseURL":"'"$proxy"'/v1"}}}}'
-    out="$(opencode run --variant off --title e2e "$prompt")" ;;
+    out="$(opencode run --variant "$level" --title e2e "$prompt")" ;;
   pi)
     frlink pi on --model "$model" --base-url "$proxy"
-    out="$(pi -p --thinking off "$prompt")" ;;
+    out="$(pi -p --thinking "$level" "$prompt")" ;;
   hermes)
     frlink hermes on --model "$model"
     hermes config set model.base_url "$proxy/v1"
-    out="$(hermes chat -Q --reasoning none -q "$prompt")" ;;
+    out="$(hermes chat -Q --reasoning "${level/off/none}" -q "$prompt")" ;;
   dsh)
     frlink dsh on "${profile[@]}" --model "$model"
     cat > .dsh/settings.yaml <<YAML
-agent-default-model: { provider: friendli, model: $model, reasoningEffort: "off" }
+agent-default-model: { provider: friendli, model: $model, reasoningEffort: "$level" }
 YAML
     cat > thinking-off.yml <<YAML
 - id: "@friendliai/dsh-llm-friendli"
@@ -95,16 +121,16 @@ grep -qi pong <<<"$out"
 
 # The proxy saw every inference request: each one answered 200, none with
 # reasoning (chat-completions, Responses and Messages wire shapes).
-node -e '
+LEVEL="$level" node -e '
 const rows = require("fs").readFileSync("capture.jsonl", "utf8").trim().split("\n").map(JSON.parse)
   .filter((r) => r.request.method === "POST" && /\/(chat\/completions|responses|messages)(\?|$)/.test(r.request.path));
 if (!rows.length) throw new Error("no inference request reached Friendli");
 for (const r of rows) {
   if (r.response.status !== 200) throw new Error(`${r.request.path} answered ${r.response.status}`);
-  if (/reasoning_content":"[^"]|"reasoning":"[^"]|"thinking_delta"|"type":"thinking"|reasoning[a-z_.]*\.delta/.test(JSON.stringify(r.response.body)))
+  if (process.env.LEVEL === "off" && /reasoning_content":"[^"]|"reasoning":"[^"]|"thinking_delta"|"type":"thinking"|reasoning[a-z_.]*\.delta/.test(JSON.stringify(r.response.body)))
     throw new Error(`${r.request.path}: reasoning came back although it was turned off`);
 }
-console.log(`proxy: ${rows.length} inference response(s), all 200, none with reasoning`);
+console.log(`proxy: ${rows.length} inference response(s), all 200, none with reasoning (when off)`);
 '
 
 frlink "$name" status "${profile[@]}" | grep "routed through FriendliAI"
