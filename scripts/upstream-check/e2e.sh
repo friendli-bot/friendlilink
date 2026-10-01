@@ -47,7 +47,7 @@ key="$FRIENDLIAI_API_KEY"
 unset FRIENDLIAI_API_KEY
 
 # Cheapest model with a reasoning toggle (-> "off") or effort levels (-> lowest).
-read -r model level < <(curl -fsS https://api.friendli.ai/serverless/v1/models | node -e '
+read -r model level < <(curl -fsS -H "Authorization: Bearer $key" https://api.friendli.ai/serverless/v1/models | node -e '
 const models = JSON.parse(require("fs").readFileSync(0, "utf8")).data.flatMap((m) => {
   const toggle = m.reasoning_options?.some((o) => o.type === "toggle");
   const effort = m.reasoning_options?.find((o) => o.type === "effort")?.values?.[0];
@@ -69,7 +69,9 @@ case "$name" in
   codex)    npm install -g "@openai/codex@$to" ;;
   opencode) npm install -g "opencode-ai@$to" ;;
   pi)       npm install -g "@earendil-works/pi-coding-agent@$to" ;;
-  hermes)   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash ;;
+  hermes)   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+            # the installer always fetches latest: make sure that is the version under test
+            [[ "$(hermes --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" == "$to" ]] ;;
   dsh)      npm install -g "@deepseek-ai/dsh-llm@$to" pnpm ;;
 esac
 
@@ -122,6 +124,8 @@ esac
 echo "$out"
 grep -qi pong <<<"$out"
 
+# The relay answers the client before it appends the capture row: wait for it.
+for _ in {1..25}; do grep -qE '"path":"[^"]*/(chat/completions|responses|messages)' capture.jsonl && break; sleep 0.2; done
 # The proxy saw every inference request: each one answered 200, none with
 # reasoning (chat-completions, Responses and Messages wire shapes).
 LEVEL="$level" node -e '
@@ -130,10 +134,10 @@ const rows = require("fs").readFileSync("capture.jsonl", "utf8").trim().split("\
 if (!rows.length) throw new Error("no inference request reached Friendli");
 for (const r of rows) {
   if (r.response.status !== 200) throw new Error(`${r.request.path} answered ${r.response.status}`);
-  if (process.env.LEVEL === "off" && /reasoning_content":"[^"]|"reasoning":"[^"]|"thinking_delta"|"type":"thinking"|reasoning[a-z_.]*\.delta/.test(JSON.stringify(r.response.body)))
+  if (process.env.LEVEL === "off" && /reasoning_content"|"reasoning":"[^"]|"thinking_delta"|"type":"(thinking|reasoning)"|reasoning[a-z_.]*\.delta/.test(JSON.stringify(r.response.body)))
     throw new Error(`${r.request.path}: reasoning came back although it was turned off`);
 }
-console.log(`proxy: ${rows.length} inference response(s), all 200, none with reasoning (when off)`);
+console.log(`proxy: ${rows.length} inference response(s), all 200, no reasoning field (when off)`);
 '
 
 frlink "$name" status "${profile[@]}" | grep "routed through FriendliAI"
