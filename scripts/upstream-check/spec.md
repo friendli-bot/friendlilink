@@ -21,7 +21,8 @@ detect (daily cron 11:00 KST + workflow_dispatch)
 unit-e2e (matrix: changed harnesses only)
   ├─ install-and-test.sh <name> <to> — install new version, run that
   │   harness's unit suite (test/harnesses/<name>) under a sandbox HOME
-  └─ e2e.mjs — skipped if unit failed (steps.unit.outcome == 'success')
+  └─ e2e.sh <name> <to> — skipped if unit failed (steps.unit.outcome
+     == 'success') or FRIENDLIAI_API_KEY is not configured
 notify
   ├─ report: per-harness version bump + unit + e2e to Slack
   ├─ heartbeat line on no-change days
@@ -34,16 +35,17 @@ notify
 - `check.mjs` — npm lookup + diff. Snapshot keys are the real npm package names; the harness alias lives in check.mjs's WATCH list. Records latest locally; commit is the workflow's job. Registry failure = `::warning::` only.
 - `versions.json` — last passing snapshot, keyed by npm package name. Source of truth for the diff.
 - `install-and-test.sh` — `npm install -g <pkg>@<to>` then `pnpm test -- test/harnesses/<name>` with HOME/XDG/DSH_HOME/PI_CODING_AGENT_DIR pointed at a throwaway sandbox (Hermes resolves its per-test home from the test context). Skipped tests are treated as failure: with the real CLI installed, `describe.skipIf(binary)` must not skip.
-- `e2e.mjs` — stub. Every harness returns `{"e2e":"not implemented"}`, exit 0. Single extension point for future real e2e.
-- `notify.mjs` — builds the Slack message from the changed matrix + aggregate unit result (or `RESULTS`/`MODE` env for local runs). No `SLACK_WEBHOOK_URL` → `::warning::`, exit 0.
+- `e2e.sh` — one harness, typed like a user: re-exec into an `env -i` shell with an empty throwaway HOME → install the harness (`<to>`) → install frlink from `main` with the public `install.sh` → `frlink login` → start `scripts/friendli-relay.mjs` (logging proxy) and `frlink <name> on --model zai-org/GLM-5.2`, pointing the harness at the proxy (claude/codex/pi `--base-url`, opencode `OPENCODE_CONFIG_CONTENT`, hermes `hermes config set model.base_url`, dsh plugin `baseURL`) → one inference with reasoning turned off by the harness's own command, never by frlink (claude `MAX_THINKING_TOKENS=0`, codex `-c model_reasoning_effort=none`, opencode `--variant off`, pi `--thinking off`, hermes `--reasoning none`, dsh `reasoningEffort: off` in `settings.yaml` + plugin `thinking: disabled`) → check the proxy capture: at least one inference request, every one answered 200, none with reasoning in the response → `frlink <name> off` → assert `status` no longer routed and the API key is gone from HOME → `logout` → HOME removed. The key is withheld from the environment until `login`, so third-party installers never see it. Any failing command fails the leg.
+- `notify.mjs` — appends, per failed e2e harness, the key-redacted tail of its stdout/stderr (leg uploads artifact `e2e-log-<name>`, notify downloads them into `E2E_LOG_DIR`) to the report; builds the Slack message from the changed matrix + per-harness unit/e2e verdicts (`unit-results.mjs`, read from the Actions jobs API steps), or `RESULTS`/`MODE` env for local runs. No `SLACK_WEBHOOK_URL` → `::warning::`, exit 0.
 
 ## Secrets
 
 - `SLACK_WEBHOOK_URL` — incoming webhook for the target org public channel.
+- `FRIENDLIAI_API_KEY` — Friendli API key for the e2e inference (one tiny request per changed harness). Missing → e2e reported as `skipped (no API key)`.
 
 ## User-facing requirements (fixed)
 
 1. Alert on version update.
 2. Unit test results for that update.
-3. e2e results for that update (currently always "not implemented").
+3. e2e results for that update (real inference through the harness; pass / fail / skipped).
 4. Only changed harnesses run; unit failure skips e2e.
