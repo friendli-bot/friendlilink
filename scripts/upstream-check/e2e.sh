@@ -23,15 +23,18 @@ if [[ -z "${E2E_CLEAN:-}" ]]; then
     FRIENDLIAI_API_KEY="$FRIENDLIAI_API_KEY" bash "$0" "$@"
 fi
 relay="$(cd "$(dirname "$0")/.." && pwd)/friendli-relay.mjs"
-# On failure, say what Friendli answered (a 429 shows up here, in the Slack log).
+# On failure, say what Friendli answered: every 4xx/5xx, plus requests the relay
+# could not forward at all (those never reach capture.jsonl).
 cleanup() {
-  if [[ $? != 0 && -f capture.jsonl ]]; then
+  local rc=$?
+  if [[ $rc != 0 && -f capture.jsonl ]]; then
     node -e '
 for (const l of require("fs").readFileSync("capture.jsonl", "utf8").trim().split("\n").map(JSON.parse))
   if (l.request.method === "POST" && l.response.status >= 400)
     console.error("proxy: Friendli answered", l.response.status, l.request.path, JSON.stringify(l.response.body).slice(0, 300));
 ' || true
   fi
+  [[ $rc == 0 ]] || grep "upstream error" relay.log 2>/dev/null || true
   kill "${relay_pid:-}" 2>/dev/null || true
   rm -rf "$HOME"
 }
@@ -79,7 +82,7 @@ frlink check status | grep "^  $name (.*): not routed"
 frlink login --api-key "$key"
 
 proxy=http://127.0.0.1:8787
-node "$relay" --port 8787 --log capture.jsonl --bodies 1000000 --quiet 2>/dev/null &
+node "$relay" --port 8787 --log capture.jsonl --bodies 1000000 --quiet 2>relay.log &
 relay_pid=$!
 until curl -s -o /dev/null "$proxy"; do kill -0 "$relay_pid"; sleep 0.2; done
 
