@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Upstream compat watch — per-leg unit verdicts from the Actions jobs API.
+ * Upstream compat watch — per-leg unit + e2e verdicts from the Actions jobs API.
  *
  * The matrix job's aggregate result (needs.unit-e2e.result) cannot say WHICH
  * harness failed, but each matrix leg is its own entry in
@@ -11,7 +11,10 @@
  * string cannot cross-wire the verdict.
  *
  * Env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN (optional).
- * Output: JSON {harness: "pass"|"fail", ...} on stdout.
+ * Output: JSON {harness: {unit, e2e}, ...} on stdout. The unit and e2e steps
+ * are judged separately: a failing e2e fails the whole job, which must not
+ * read as a unit failure. unit: "pass" | "fail"; e2e: "pass" | "fail" |
+ * "skipped (unit failed)" | "skipped (no API key)".
  */
 
 const WATCHED = new Set(["claude", "codex", "dsh", "hermes", "opencode", "pi"]);
@@ -46,9 +49,17 @@ for (const job of jobs) {
   // check-run output API if that ever bites.
   const suffix = job.name.match(/\((.*)\)$/)?.[1] ?? "";
   const tokens = suffix.split(",").map((t) => t.trim());
+  const conclusion = (prefix) =>
+    job.steps?.find((step) => step.name.startsWith(prefix))?.conclusion;
+  const unit = conclusion("Install ") === "success" ? "pass" : "fail";
+  const e2eStep = conclusion("e2e (");
+  let e2e = "fail";
+  if (unit !== "pass") e2e = "skipped (unit failed)";
+  else if (e2eStep === "success") e2e = "pass";
+  else if (e2eStep === "skipped") e2e = "skipped (no API key)";
   for (const harness of tokens) {
     if (WATCHED.has(harness)) {
-      verdicts[harness] = job.conclusion === "success" ? "pass" : "fail";
+      verdicts[harness] = { unit, e2e };
     }
   }
 }

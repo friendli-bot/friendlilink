@@ -4,7 +4,9 @@ name: Upstream compat watch
 #   detect  — npm `latest` diff vs scripts/upstream-check/versions.json
 #   unit-e2e — per CHANGED harness only: install the new version, run that
 #              harness's unit suite in a sandbox HOME; if unit fails, e2e is
-#              skipped (user rule 2). e2e is currently a not-implemented stub.
+#              skipped (user rule 2). Then e2e.sh drives the real harness
+#              against the real Friendli API from a clean terminal (needs the
+#              FRIENDLIAI_API_KEY secret; without it e2e is skipped, not failed).
 #   notify  — Slack via SLACK_WEBHOOK_URL: version update + unit + e2e
 #              results, heartbeat line on no-change days.
 #
@@ -43,6 +45,10 @@ jobs:
     needs: detect
     if: needs.detect.outputs.changed == 'true'
     runs-on: ubuntu-latest
+    env:
+      # Only whether the secret exists — the key itself goes to the e2e step
+      # alone, never next to the unit step's upstream lifecycle scripts.
+      HAS_E2E_KEY: ${{ secrets.FRIENDLIAI_API_KEY != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -58,14 +64,27 @@ jobs:
         run: bash scripts/upstream-check/install-and-test.sh ${{ matrix.name }} ${{ matrix.to }}
       - name: e2e (${{ matrix.name }})
         id: e2e
-        if: steps.unit.outcome == 'success'
-        run: node scripts/upstream-check/e2e.mjs ${{ matrix.name }} ${{ matrix.from }} ${{ matrix.to }}
+        if: steps.unit.outcome == 'success' && env.HAS_E2E_KEY == 'true'
+        env:
+          FRIENDLIAI_API_KEY: ${{ secrets.FRIENDLIAI_API_KEY }}
+        shell: bash # pipefail, so tee does not mask the e2e exit code
+        run: bash scripts/upstream-check/e2e.sh ${{ matrix.name }} ${{ matrix.to }} 2>&1 | sed "s|$FRIENDLIAI_API_KEY|***|g" | tee "$RUNNER_TEMP/e2e.log"
+      - name: Keep e2e failure log for the Slack report
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-log-${{ matrix.name }}
+          path: ${{ runner.temp }}/e2e.log
   notify:
     needs: [detect, unit-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: e2e-log-*
+          path: e2e-logs
       - name: Assemble results and notify
         if: needs.detect.outputs.changed == 'true'
         env:
@@ -74,6 +93,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ github.token }}
+          E2E_LOG_DIR: e2e-logs
         run: |
           # Per-leg unit verdicts from the Actions jobs API — the aggregate
           # matrix result can't tell which harness failed.

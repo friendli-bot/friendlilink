@@ -22,7 +22,7 @@ const VERSIONS_FILE = path.join(__dirname, "versions.json");
 /**
  * Snapshot keys are the real npm package names (versions.json is self-
  * describing). The harness alias is still needed by the workflow steps
- * (install-and-test.sh, e2e.mjs, unit-results.mjs key off it).
+ * (install-and-test.sh, e2e.sh, unit-results.mjs key off it).
  */
 const WATCH = [
   { name: "claude", pkg: "@anthropic-ai/claude-code" },
