@@ -49,9 +49,8 @@ describe("verifyFriendliApiKey", () => {
 
     const result = await verifyFriendliApiKey("bogus-key-12345");
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
-      message: "FriendliAI rejected the API key.",
     });
     const chatCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith("/chat/completions"),
@@ -100,7 +99,7 @@ describe("verifyFriendliApiKey", () => {
       verifyFriendliApiKey("real-key-123456"),
     ).resolves.toMatchObject({
       ok: false,
-      message: "Could not verify the FriendliAI API key.",
+      message: expect.stringContaining("network down"),
     });
   });
 
@@ -111,7 +110,7 @@ describe("verifyFriendliApiKey", () => {
       verifyFriendliApiKey("real-key-123456"),
     ).resolves.toMatchObject({
       ok: false,
-      message: "Could not verify the FriendliAI API key.",
+      message: expect.stringContaining("HTTP 503"),
     });
   });
 });

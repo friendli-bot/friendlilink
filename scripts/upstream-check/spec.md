@@ -43,6 +43,10 @@ Model-catalog fetch failures stop before JSON parsing and log the stage
 code. The summary follows curl's diagnostic so the Slack log tail identifies
 the failed request without a secondary empty-input JSON error.
 
+Login credential-check failures preserve the unexpected HTTP status or network
+error in the CLI output, so the e2e failure log and Slack report retain the
+reason instead of only saying that the API key could not be verified.
+
 ## Secrets
 
 - `SLACK_WEBHOOK_URL` — incoming webhook for the target org public channel.
