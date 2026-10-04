@@ -52,6 +52,10 @@ const DISABLE_1M_CONTEXT_KEY = "CLAUDE_CODE_DISABLE_1M_CONTEXT";
 const MODEL_CAPABILITIES_KEY = "CLAUDE_CODE_MODEL_CAPABILITIES";
 const DEFAULT_MODEL_KEY = "ANTHROPIC_DEFAULT_MODEL";
 
+/** Keeps auto mode available but stops Claude Code from asking Anthropic's
+ * server-side classifier, which the Friendli gateway can't serve. */
+const AUTO_MODE_SERVER_KEY = "CLAUDE_CODE_AUTO_MODE_SERVER";
+
 /** Claude Code chooses its provider from these before it ever reads
  * `ANTHROPIC_BASE_URL`. Someone running Claude Code on Bedrock or Vertex has
  * one of them set — that is the documented setup — so without this their
@@ -238,6 +242,7 @@ export function buildFriendliProviderEnv(
   for (const key of PROVIDER_SELECTION_KEYS) {
     env[key] = "";
   }
+  env[AUTO_MODE_SERVER_KEY] = "0";
   if (options.pinAutoUpdate) {
     // A pinned version only holds if Claude Code stops updating past it.
     // `DISABLE_AUTOUPDATER` is the switch its binary honors (checked before

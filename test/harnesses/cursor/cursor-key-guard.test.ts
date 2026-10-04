@@ -15,6 +15,15 @@ vi.mock("../../../src/keys/api-key.js", async (importOriginal) => {
   };
 });
 
+// Run from Cursor's own terminal, `on` defers to a detached run and returns
+// before the key guard. Pin it off so the suite doesn't depend on where it runs.
+vi.mock("../../../src/harnesses/cursor/guard.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../src/harnesses/cursor/guard.js")
+  >()),
+  isInsideCursor: () => false,
+}));
+
 const passwordMock = vi.fn();
 const isCancelMock = vi.fn(() => false);
 vi.mock("@clack/prompts", () => ({
