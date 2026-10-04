@@ -58,6 +58,7 @@ describe("claude core", () => {
     expect(settings.permissions.deny).toEqual(
       expect.arrayContaining(["WebSearch", "WebFetch", "SendMessage"]),
     );
+    expect(settings.env.CLAUDE_CODE_AUTO_MODE_SERVER).toBe("0");
   });
 
   it("writes telemetry header lines on re-enable while preserving unrelated custom headers", async () => {
