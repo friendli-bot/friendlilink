@@ -38,6 +38,11 @@ notify
 - `e2e.sh` — one harness, typed like a user: re-exec into an `env -i` shell with an empty throwaway HOME → install the harness (`<to>`) → install frlink from `main` with the public `install.sh` → `frlink login` → start `scripts/friendli-relay.mjs` (logging proxy) and `frlink <name> on --model <cheapest model>` (picked each run from `GET /v1/models`: cheapest by input+output price among models with a reasoning `toggle` → level `off`, or an `effort` option → its lowest level), pointing the harness at the proxy (claude/codex/pi `--base-url`, opencode `OPENCODE_CONFIG_CONTENT`, hermes `hermes config set model.base_url`, dsh plugin `baseURL`) → one inference with that level set by the harness's own command, never by frlink (off: claude `MAX_THINKING_TOKENS=0`, codex `-c model_reasoning_effort=none`, opencode `--variant off`, pi `--thinking off`, hermes `--reasoning none`, dsh `reasoningEffort: off`; effort: claude `--effort`, the others the same flags with the level in `settings.yaml` + plugin `thinking: disabled`) → check the proxy capture: at least one inference request, every one answered 200, none with reasoning in the response when it was turned off; on failure the non-2xx Friendli answers (e.g. 429) are printed to stderr, so they reach the Slack log → `frlink <name> off` → assert `status` no longer routed and the API key is gone from HOME → `logout` → HOME removed. The key is withheld from the environment until `login`, so third-party installers never see it. Any failing command fails the leg.
 - `notify.mjs` — appends, per failed e2e harness, the tail of its stdout/stderr (leg uploads artifact `e2e-log-<name>`, notify downloads them into `E2E_LOG_DIR`) to the report; builds the Slack message from the changed matrix + per-harness unit/e2e verdicts (`unit-results.mjs`, read from the Actions jobs API steps), or `RESULTS`/`MODE` env for local runs. No `SLACK_WEBHOOK_URL` → `::warning::`, exit 0.
 
+Model-catalog fetch failures stop before JSON parsing and log the stage
+(`model-catalog`), HTTP method, full endpoint URL, HTTP status, and curl exit
+code. The summary follows curl's diagnostic so the Slack log tail identifies
+the failed request without a secondary empty-input JSON error.
+
 ## Secrets
 
 - `SLACK_WEBHOOK_URL` — incoming webhook for the target org public channel.

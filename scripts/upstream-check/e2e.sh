@@ -47,8 +47,17 @@ key="$FRIENDLIAI_API_KEY"
 unset FRIENDLIAI_API_KEY
 
 # Cheapest model with a reasoning toggle (-> "off") or effort levels (-> lowest).
-read -r model level < <(curl -fsS https://api.friendli.ai/serverless/v1/models | node -e '
-const models = JSON.parse(require("fs").readFileSync(0, "utf8")).data.flatMap((m) => {
+models_url=https://api.friendli.ai/serverless/v1/models
+echo "e2e: fetching model catalog: GET $models_url" >&2
+if http_status="$(curl -fsS -o models.json -w '%{http_code}' "$models_url")"; then
+  :
+else
+  rc=$?
+  echo "e2e: FAILED stage=model-catalog method=GET url=$models_url http_status=$http_status curl_exit=$rc" >&2
+  exit "$rc"
+fi
+read -r model level < <(node -e '
+const models = JSON.parse(require("fs").readFileSync("models.json", "utf8")).data.flatMap((m) => {
   const toggle = m.reasoning_options?.some((o) => o.type === "toggle");
   const effort = m.reasoning_options?.find((o) => o.type === "effort")?.values?.[0];
   const level = toggle ? "off" : effort;
