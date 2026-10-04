@@ -47,7 +47,7 @@ export async function verifyFriendliApiKey(
     return {
       ok: false,
       message: check.accepted
-        ? "Could not verify the FriendliAI API key."
+        ? (check.message ?? "Could not verify the FriendliAI API key.")
         : "FriendliAI rejected the API key.",
     };
   }
