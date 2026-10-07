@@ -48,12 +48,20 @@ install_hermes()   {
   fi
 }
 
-# Dependency install first, with the normal HOME — the sandbox redirection
-# below is for the test process, not the package manager (a redirected HOME
-# gives pnpm an empty cache and costs minutes on CI for nothing). No
-# --frozen-lockfile: lockfiles are intentionally not committed to this repo
-# (see .github/workflows/ci.yml).
-pnpm install
+# Install only the root app for non-dsh legs. A workspace-wide install also
+# runs the dsh adapter's prepare script, which must not make an unrelated
+# harness's result fail. Keep the normal HOME for pnpm's cache; only the
+# test process below uses the sandbox. Lockfiles are intentionally not
+# committed here (see .github/workflows/ci.yml).
+pnpm --filter frlink install
+
+if [[ "$name" == dsh ]]; then
+  # Compile the local adapter against the version under test, not whichever
+  # dsh-llm version happens to be declared in this checkout. This leg alone
+  # installs the workspace plugin and must fail on adapter incompatibility.
+  pnpm --filter @friendliai/dsh-llm-friendli add --save-dev --save-exact "@deepseek-ai/dsh-llm@$to"
+  pnpm --filter @friendliai/dsh-llm-friendli run typecheck
+fi
 
 # --- unit ------------------------------------------------------------------
 run_unit() {
