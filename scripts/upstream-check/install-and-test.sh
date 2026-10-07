@@ -63,6 +63,23 @@ if [[ "$name" == dsh ]]; then
   pnpm --filter @friendliai/dsh-llm-friendli run typecheck
 fi
 
+# Hermes' Python provider is not a pnpm workspace package. Exercise it only
+# on the Hermes leg, against the exact runtime installed above, so a provider
+# failure cannot mark another harness's update as incompatible.
+run_hermes_plugin() {
+  local sandbox runtime status=0
+  sandbox="$(mktemp -d)"
+  runtime="$HOME/.hermes/hermes-agent"
+  mkdir -p "$sandbox/plugins/model-providers"
+  ln -s "$PWD/packages/hermes-friendli-provider" "$sandbox/plugins/model-providers/friendli"
+  HERMES_HOME="$sandbox" PYTHONPATH="$runtime${PYTHONPATH:+:$PYTHONPATH}" \
+    uv run --no-project --python "$runtime/venv/bin/python" --with pytest \
+      python -m pytest packages/hermes-friendli-provider/test_friendli_profile.py \
+      packages/hermes-friendli-provider/test_transport_kwargs.py -q || status=$?
+  rm -rf "$sandbox"
+  return "$status"
+}
+
 # --- unit ------------------------------------------------------------------
 run_unit() {
   local sandbox
@@ -94,4 +111,7 @@ esac
 
 cd "$(dirname "$0")/../.."
 "install_$name"
+if [[ "$name" == hermes ]]; then
+  run_hermes_plugin
+fi
 run_unit
