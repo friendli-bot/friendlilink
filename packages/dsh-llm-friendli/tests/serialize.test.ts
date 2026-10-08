@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ReasoningEffortId } from "@deepseek-ai/dsh-llm";
+import {
+  createAssistantMessage,
+  createMessage,
+  createToolResultMessage,
+  ReasoningEffortId,
+  ToolCallId,
+} from "@deepseek-ai/dsh-llm";
 import type { GenerateOptions, ToolSchema } from "@deepseek-ai/dsh-llm";
 import { serializeRequest } from "../src/serialize.ts";
 
@@ -14,6 +20,59 @@ function req(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
     ...overrides,
   };
 }
+
+describe("serializeRequest history", () => {
+  it("preserves request-only input, developer instructions, assistant calls and tool-role results in order", () => {
+    const callId = ToolCallId("call-1");
+    const body = serializeRequest(
+      req({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hi" }] },
+          createMessage({
+            role: "developer",
+            source: { kind: "user" },
+            content: [
+              { type: "tool-addition", toolName: "search" },
+              { type: "text", text: "Use search" },
+            ],
+          }),
+          createAssistantMessage({
+            source: { provider: "friendli", model: "test" },
+            content: [
+              {
+                type: "tool-call",
+                id: callId,
+                name: "search",
+                arguments: "{}",
+              },
+            ],
+          }),
+          createToolResultMessage({
+            callId,
+            content: [{ type: "text", text: "found" }],
+            isError: false,
+          }),
+        ],
+      }),
+    );
+    expect(body.messages).toEqual([
+      { role: "user", content: "hi" },
+      { role: "system", content: "Use search" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: { name: "search", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call-1", content: "found" },
+    ]);
+  });
+});
 
 describe("serializeRequest reasoning wiring", () => {
   it("always requests the reasoning-content split", () => {

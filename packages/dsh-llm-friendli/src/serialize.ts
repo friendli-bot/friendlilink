@@ -1,7 +1,7 @@
 /**
  * Serialize harness messages into Friendli chat completions (OpenAI-compatible).
  * User text is joined; assistant text becomes `content`, tool calls become
- * `tool_calls`, and tool results become separate `role:'tool'` messages.
+ * `tool_calls`, and tool-role messages become `role:'tool'` messages.
  * Assistant reasoning is replayed as `reasoning_content` only on tool-call
  * turns. Image content is rejected explicitly because this wire route is
  * text-only.
@@ -18,6 +18,7 @@ import type {
   ContentBlock,
   GenerateOptions,
   Message,
+  RequestMessage,
 } from "@deepseek-ai/dsh-llm";
 import type { WireMessage, WireRequest, WireTool } from "./types.ts";
 
@@ -113,37 +114,30 @@ function serializeAssistant(message: Message): WireMessage {
 }
 
 /**
- * Serialize the conversation. `tool-result` blocks become standalone
- * `{role:'tool'}` messages; a mixed user message contributes its text first
- * and its tool results as separate wire messages after.
- * @param messages - the harness conversation, in order.
- * @returns the wire messages; order preserved.
+ * Serialize request history in order. Tool results are first-class tool-role
+ * messages; request-only user input has the same content shape as a logged user
+ * message. Developer tool updates have no wire representation; their text
+ * instructions, if any, are sent as system messages.
  */
-export function serializeMessages(messages: readonly Message[]): WireMessage[] {
+export function serializeMessages(
+  messages: readonly RequestMessage[],
+): WireMessage[] {
   const wire: WireMessage[] = [];
   for (const message of messages) {
     assertTextOnly(message.content);
-    if (message.role === "system") {
-      wire.push({ role: "system", content: flattenText(message.content) });
-      continue;
-    }
-    if (message.role === "assistant") {
-      wire.push(serializeAssistant(message));
-      continue;
-    }
-    const toolResults = message.content.filter(
-      (block) => block.type === "tool-result",
-    );
-    const text = flattenText(message.content);
-    if (text.length > 0 || toolResults.length === 0) {
-      wire.push({ role: "user", content: text });
-    }
-    for (const result of toolResults) {
+    if (message.role === "tool") {
       wire.push({
         role: "tool",
-        tool_call_id: result.toolCallId,
-        content: flattenText(result.content) || "(no output)",
+        tool_call_id: message.toolCallId,
+        content: flattenText(message.content) || "(no output)",
       });
+    } else if (message.role === "assistant") {
+      wire.push(serializeAssistant(message));
+    } else if (message.role === "system" || message.role === "developer") {
+      const text = flattenText(message.content);
+      if (text.length > 0) wire.push({ role: "system", content: text });
+    } else {
+      wire.push({ role: "user", content: flattenText(message.content) });
     }
   }
   return wire;
